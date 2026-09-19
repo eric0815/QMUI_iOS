@@ -1055,21 +1055,53 @@ static NSInteger isHighPerformanceDevice = -1;
 }
 
 + (CGSize)applicationSize {
-    /// applicationFrame 在 iPad 下返回的 size 要比 window 实际的 size 小，这个差值体现在 origin 上，所以用 origin + size 修正得到正确的大小。
-    BeginIgnoreDeprecatedWarning
-    CGRect applicationFrame = [UIScreen mainScreen].applicationFrame;
-    EndIgnoreDeprecatedWarning
-    CGSize applicationSize = CGSizeMake(applicationFrame.size.width + applicationFrame.origin.x, applicationFrame.size.height + applicationFrame.origin.y);
-    if (CGSizeEqualToSize(applicationSize, CGSizeZero)) {
-        // 实测 MacCatalystApp 通过 [UIScreen mainScreen].applicationFrame 拿不到大小，这里做一下保护
-        UIWindow *window = UIApplication.sharedApplication.qmui_delegateWindow;
-        if (window) {
-            applicationSize = window.bounds.size;
-        } else {
-            applicationSize = UIWindow.new.bounds.size;
+    BOOL runningOnMac = NO;
+#if TARGET_OS_MACCATALYST
+    runningOnMac = YES;
+#else
+    runningOnMac = NSProcessInfo.processInfo.isiOSAppOnMac;
+#endif
+
+    if (!runningOnMac) {
+        /// applicationFrame 在 iPad 下返回的 size 要比 window 实际的 size 小，这个差值体现在 origin 上，所以用 origin + size 修正得到正确的大小。
+        BeginIgnoreDeprecatedWarning
+        CGRect applicationFrame = [UIScreen mainScreen].applicationFrame;
+        EndIgnoreDeprecatedWarning
+        CGSize applicationSize = CGSizeMake(applicationFrame.size.width + applicationFrame.origin.x, applicationFrame.size.height + applicationFrame.origin.y);
+        if (!CGSizeEqualToSize(applicationSize, CGSizeZero)) {
+            return applicationSize;
         }
     }
-    return applicationSize;
+
+    // My Mac (Designed for iPad) / Mac Catalyst 上 UIScreen.applicationFrame 会触发
+    // _screenBasedFocusUnsupported 断言；Mac Catalyst 上则可能拿到 CGSizeZero。
+    // 统一改为从 window / scene 取实际窗口大小，不要再走 UIScreen / UIWindow.new。
+    UIWindow *window = UIApplication.sharedApplication.qmui_delegateWindow;
+    if (!window) {
+        window = UIApplication.sharedApplication.qmui_keyWindow;
+    }
+    if (window && !CGSizeEqualToSize(window.bounds.size, CGSizeZero)) {
+        return window.bounds.size;
+    }
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) {
+            continue;
+        }
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        CGSize sceneSize = windowScene.coordinateSpace.bounds.size;
+        if (!CGSizeEqualToSize(sceneSize, CGSizeZero)) {
+            return sceneSize;
+        }
+        for (UIWindow *sceneWindow in windowScene.windows) {
+            if (!CGSizeEqualToSize(sceneWindow.bounds.size, CGSizeZero)) {
+                return sceneWindow.bounds.size;
+            }
+        }
+    }
+    if (runningOnMac) {
+        return CGSizeMake(1024, 768);
+    }
+    return UIWindow.new.bounds.size;
 }
 
 + (CGFloat)statusBarHeightConstant {
