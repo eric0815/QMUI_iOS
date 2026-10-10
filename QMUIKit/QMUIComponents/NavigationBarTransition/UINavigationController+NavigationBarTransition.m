@@ -170,6 +170,19 @@ QMUISynthesizeIdStrongProperty(qmui_specifiedTextColor, setQmui_specifiedTextCol
                 originSelectorIMP(selfObject, originCMD, firstArgv);
             };
         });
+
+        // setViewControllers 换栈后导航栏状态可能停留在上一个界面：换栈不一定伴随 appearance——系统转场中的栈迁移
+        // （如 UISplitViewController 折叠/展开 delegate 里的换栈）、可见性不翻转的替换、离屏装配栈，新栈顶的
+        // viewWillAppear: 都不会触发，上面的 render 也就不会执行。这里借助 navigationAction 机制在 DidSet 后对新栈顶补一次。
+        // 不能对 setViewControllers:animated: 再做 OverrideImplementation：UINavigationController+QMUI.m 已 swizzle 该
+        // selector，跨分类 +load 顺序不可控；animated 的换栈会正常走 appearance + 假 bar 转场，无需也不应补
+        ExtendImplementationOfVoidMethodWithoutArguments([UINavigationController class], @selector(qmui_didInitialize), ^(UINavigationController *selfObject) {
+            [selfObject qmui_addNavigationActionDidChangeBlock:^(QMUINavigationAction action, BOOL animated, __kindof UINavigationController * _Nullable weakNavigationController, __kindof UIViewController * _Nullable appearingViewController, NSArray<__kindof UIViewController *> * _Nullable disappearingViewControllers) {
+                if (action == QMUINavigationActionDidSet && !animated && appearingViewController) {
+                    [appearingViewController renderNavigationBarStyleAnimated:NO];
+                }
+            }];
+        });
         
         OverrideImplementation([UIViewController class], @selector(viewWillLayoutSubviews), ^id(__unsafe_unretained Class originClass, SEL originCMD, IMP (^originalIMPProvider)(void)) {
             return ^(UIViewController *selfObject) {
@@ -480,13 +493,6 @@ QMUISynthesizeIdStrongProperty(qmui_specifiedTextColor, setQmui_specifiedTextCol
     
     if (![vc1 conformsToProtocol:@protocol(QMUINavigationControllerDelegate)] || ![vc2 conformsToProtocol:@protocol(QMUINavigationControllerDelegate)]) {
         return NO;// 只处理前后两个界面都是 QMUI 系列的场景
-    }
-    
-    BOOL vc1Clips = vc1.isViewLoaded && vc1.view.clipsToBounds && vc1.qmui_navigationBarMaxYInViewCoordinator < NavigationContentTopConstant;
-    BOOL vc2Clips = vc2.isViewLoaded && vc2.view.clipsToBounds && vc2.qmui_navigationBarMaxYInViewCoordinator < NavigationContentTopConstant;
-    if (vc1Clips || vc2Clips) {
-        QMUILogWarn(@"UINavigationController (NavigationBarTransition)", @"因界面布局原因导致无法优化导航栏动画，vc1 = %@，maxY1 = %.0f, vc2 = %@，maxY2 = %.0f", vc1, vc1.qmui_navigationBarMaxYInViewCoordinator, vc2, vc2.qmui_navigationBarMaxYInViewCoordinator);
-        return NO;// 左右两个界面只要其中某个界面无法完整显示 navigationBar，都不进行动画优化
     }
     
     if ([vc1.navigationController.delegate respondsToSelector:@selector(navigationController:animationControllerForOperation:fromViewController:toViewController:)]) {
