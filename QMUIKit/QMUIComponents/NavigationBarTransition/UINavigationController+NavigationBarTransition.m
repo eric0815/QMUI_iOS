@@ -253,13 +253,13 @@ QMUISynthesizeIdStrongProperty(qmui_specifiedTextColor, setQmui_specifiedTextCol
     // 经测试只有 push 或 push 动画的 set 需要这么处理，pop 及 pop 动画的 set 没问题
     // iOS 14 及以下没这种问题。
     // https://github.com/Tencent/QMUI_iOS/issues/1501
-    // 经测试，使用Xcode 26.x编译的App好像又没问题了，反而加上shouldPreventAppearance有问题🤷‍♂️
+    // iOS 26 仍可能在转场期间延迟应用 UIAppearance，覆盖已从真 bar 同步的背景。保留此保护，同时通过上面的 items 初始化保证假 bar 的子视图正常创建。
     if (@available(iOS 15.0, *)) {
         BOOL isPush = self.navigationController.qmui_navigationAction == QMUINavigationActionDidPush;
         BOOL isSet = self.navigationController.qmui_navigationAction == QMUINavigationActionDidSet;
         BOOL isPopAnimation = isSet && self.navigationController.qmui_lastOperation == UINavigationControllerOperationPop;
         if (isPush || (isSet && !isPopAnimation)) {
-            // customBar.shouldPreventAppearance = YES;
+            customBar.shouldPreventAppearance = YES;
         }
     }
     [self.view addSubview:customBar];
